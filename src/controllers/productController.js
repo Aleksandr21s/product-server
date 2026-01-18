@@ -1,5 +1,7 @@
-const Product = require('../models/Product');
+const { Op } = require('sequelize');
+const Product = require('../models/product');
 const Category = require('../models/Category');
+const User = require('../models/User');
 const { getPublicUrl, moveFileToPermanent } = require('../middleware/upload');
 const fs = require('fs-extra');
 const path = require('path');
@@ -7,12 +9,31 @@ const path = require('path');
 // Получить все товары
 const getAllProducts = async (req, res) => {
     try {
+        // Если пользователь авторизован, можно показывать только его товары
+        // Или все товары, если он админ
+        const whereCondition = {};
+        
+        if (req.userId) {
+            const user = await User.findByPk(req.userId);
+            if (!user || user.role !== 'admin') {
+                whereCondition.userId = req.userId;
+            }
+        }
+        
         const products = await Product.findAll({
-            include: {
-                model: Category,
-                as: 'category',
-                attributes: ['id', 'name', 'imageUrl']
-            },
+            where: whereCondition,
+            include: [
+                {
+                    model: Category,
+                    as: 'category',
+                    attributes: ['id', 'name', 'imageUrl']
+                },
+                {
+                    model: User,
+                    as: 'owner',
+                    attributes: ['id', 'username', 'email', 'firstName', 'lastName']
+                }
+            ],
             order: [['createdAt', 'DESC']]
         });
         
@@ -43,18 +64,37 @@ const getAllProducts = async (req, res) => {
 const getProductById = async (req, res) => {
     try {
         const { id } = req.params;
-        const product = await Product.findByPk(id, {
-            include: {
-                model: Category,
-                as: 'category',
-                attributes: ['id', 'name', 'description', 'imageUrl']
+        
+        const whereCondition = { id };
+        
+        // Если пользователь не админ, проверяем владельца
+        if (req.userId) {
+            const user = await User.findByPk(req.userId);
+            if (!user || user.role !== 'admin') {
+                whereCondition.userId = req.userId;
             }
+        }
+        
+        const product = await Product.findOne({
+            where: whereCondition,
+            include: [
+                {
+                    model: Category,
+                    as: 'category',
+                    attributes: ['id', 'name', 'description', 'imageUrl']
+                },
+                {
+                    model: User,
+                    as: 'owner',
+                    attributes: ['id', 'username', 'email', 'firstName', 'lastName']
+                }
+            ]
         });
         
         if (!product) {
             return res.status(404).json({
                 success: false,
-                message: 'Товар не найден'
+                message: 'Товар не найден или у вас нет прав для его просмотра'
             });
         }
         
@@ -83,6 +123,14 @@ const getProductById = async (req, res) => {
 // Создать новый товар
 const createProduct = async (req, res) => {
     try {
+        // Проверяем авторизацию
+        if (!req.userId) {
+            return res.status(401).json({
+                success: false,
+                message: 'Требуется авторизация'
+            });
+        }
+        
         const { name, description, price, categoryId, inStock } = req.body;
         let imageUrl = null;
         let images = [];
@@ -101,6 +149,15 @@ const createProduct = async (req, res) => {
             return res.status(400).json({
                 success: false,
                 message: 'Указанная категория не существует'
+            });
+        }
+        
+        // Проверяем существование пользователя
+        const user = await User.findByPk(req.userId);
+        if (!user) {
+            return res.status(401).json({
+                success: false,
+                message: 'Пользователь не найден'
             });
         }
         
@@ -125,24 +182,32 @@ const createProduct = async (req, res) => {
             description: description || '',
             price: parseFloat(price),
             categoryId,
+            userId: req.userId, // Добавляем владельца
             inStock: inStock !== undefined ? inStock : true,
             imageUrl,
             images
         });
         
-        // Получаем созданный товар с категорией
-        const productWithCategory = await Product.findByPk(product.id, {
-            include: {
-                model: Category,
-                as: 'category',
-                attributes: ['id', 'name']
-            }
+        // Получаем созданный товар с категорией и владельцем
+        const productWithRelations = await Product.findByPk(product.id, {
+            include: [
+                {
+                    model: Category,
+                    as: 'category',
+                    attributes: ['id', 'name']
+                },
+                {
+                    model: User,
+                    as: 'owner',
+                    attributes: ['id', 'username', 'email']
+                }
+            ]
         });
         
         res.status(201).json({
             success: true,
             message: 'Товар успешно создан',
-            data: productWithCategory
+            data: productWithRelations
         });
     } catch (error) {
         // Удаляем загруженные файлы в случае ошибки
@@ -172,12 +237,29 @@ const updateProduct = async (req, res) => {
         const { id } = req.params;
         const { name, description, price, categoryId, inStock } = req.body;
         
+        // Проверяем авторизацию
+        if (!req.userId) {
+            return res.status(401).json({
+                success: false,
+                message: 'Требуется авторизация'
+            });
+        }
+        
         const product = await Product.findByPk(id);
         
         if (!product) {
             return res.status(404).json({
                 success: false,
                 message: 'Товар не найден'
+            });
+        }
+        
+        // Проверяем права доступа (админ или владелец)
+        const user = await User.findByPk(req.userId);
+        if (user.role !== 'admin' && product.userId !== req.userId) {
+            return res.status(403).json({
+                success: false,
+                message: 'У вас нет прав для редактирования этого товара'
             });
         }
         
@@ -218,13 +300,20 @@ const updateProduct = async (req, res) => {
             imageUrl
         });
         
-        // Получаем обновлённый товар с категорией
+        // Получаем обновлённый товар с категорией и владельцем
         const updatedProduct = await Product.findByPk(id, {
-            include: {
-                model: Category,
-                as: 'category',
-                attributes: ['id', 'name']
-            }
+            include: [
+                {
+                    model: Category,
+                    as: 'category',
+                    attributes: ['id', 'name']
+                },
+                {
+                    model: User,
+                    as: 'owner',
+                    attributes: ['id', 'username', 'email']
+                }
+            ]
         });
         
         res.json({
@@ -250,12 +339,30 @@ const updateProduct = async (req, res) => {
 const deleteProduct = async (req, res) => {
     try {
         const { id } = req.params;
+        
+        // Проверяем авторизацию
+        if (!req.userId) {
+            return res.status(401).json({
+                success: false,
+                message: 'Требуется авторизация'
+            });
+        }
+        
         const product = await Product.findByPk(id);
         
         if (!product) {
             return res.status(404).json({
                 success: false,
                 message: 'Товар не найден'
+            });
+        }
+        
+        // Проверяем права доступа (админ или владелец)
+        const user = await User.findByPk(req.userId);
+        if (user.role !== 'admin' && product.userId !== req.userId) {
+            return res.status(403).json({
+                success: false,
+                message: 'У вас нет прав для удаления этого товара'
             });
         }
         
@@ -301,6 +408,15 @@ const uploadProductImage = async (req, res) => {
             });
         }
         
+        // Проверяем авторизацию
+        if (!req.userId) {
+            await fs.remove(`./uploads/temp/${req.file.filename}`).catch(console.error);
+            return res.status(401).json({
+                success: false,
+                message: 'Требуется авторизация'
+            });
+        }
+        
         const { id } = req.params;
         const product = await Product.findByPk(id);
         
@@ -309,6 +425,16 @@ const uploadProductImage = async (req, res) => {
             return res.status(404).json({
                 success: false,
                 message: 'Товар не найден'
+            });
+        }
+        
+        // Проверяем права доступа (админ или владелец)
+        const user = await User.findByPk(req.userId);
+        if (user.role !== 'admin' && product.userId !== req.userId) {
+            await fs.remove(`./uploads/temp/${req.file.filename}`).catch(console.error);
+            return res.status(403).json({
+                success: false,
+                message: 'У вас нет прав для редактирования этого товара'
             });
         }
         
@@ -357,6 +483,18 @@ const uploadProductImages = async (req, res) => {
             });
         }
         
+        // Проверяем авторизацию
+        if (!req.userId) {
+            // Удаляем все загруженные файлы
+            req.files.forEach(async file => {
+                await fs.remove(`./uploads/temp/${file.filename}`).catch(console.error);
+            });
+            return res.status(401).json({
+                success: false,
+                message: 'Требуется авторизация'
+            });
+        }
+        
         const { id } = req.params;
         const product = await Product.findByPk(id);
         
@@ -368,6 +506,19 @@ const uploadProductImages = async (req, res) => {
             return res.status(404).json({
                 success: false,
                 message: 'Товар не найден'
+            });
+        }
+        
+        // Проверяем права доступа (админ или владелец)
+        const user = await User.findByPk(req.userId);
+        if (user.role !== 'admin' && product.userId !== req.userId) {
+            // Удаляем все загруженные файлы
+            req.files.forEach(async file => {
+                await fs.remove(`./uploads/temp/${file.filename}`).catch(console.error);
+            });
+            return res.status(403).json({
+                success: false,
+                message: 'У вас нет прав для редактирования этого товара'
             });
         }
         
@@ -416,12 +567,30 @@ const uploadProductImages = async (req, res) => {
 const deleteProductImage = async (req, res) => {
     try {
         const { id, imageIndex } = req.params;
+        
+        // Проверяем авторизацию
+        if (!req.userId) {
+            return res.status(401).json({
+                success: false,
+                message: 'Требуется авторизация'
+            });
+        }
+        
         const product = await Product.findByPk(id);
         
         if (!product) {
             return res.status(404).json({
                 success: false,
                 message: 'Товар не найден'
+            });
+        }
+        
+        // Проверяем права доступа (админ или владелец)
+        const user = await User.findByPk(req.userId);
+        if (user.role !== 'admin' && product.userId !== req.userId) {
+            return res.status(403).json({
+                success: false,
+                message: 'У вас нет прав для редактирования этого товара'
             });
         }
         

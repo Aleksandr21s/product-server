@@ -1,5 +1,5 @@
 const Category = require('../models/Category');
-const Product = require('../models/Product');
+const Product = require('../models/product');
 const { getPublicUrl, moveFileToPermanent } = require('../middleware/upload');
 const fs = require('fs-extra');
 const path = require('path');

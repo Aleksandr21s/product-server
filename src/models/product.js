@@ -33,7 +33,15 @@ const Product = sequelize.define('Product', {
         type: DataTypes.JSON, // JSON массив для нескольких изображений
         allowNull: true,
         defaultValue: []
-    }
+    },
+    userId: {
+        type: DataTypes.INTEGER,
+        allowNull: false,
+        references: {
+            model: 'users',
+            key: 'id'
+        }
+    },
 }, {
     tableName: 'products',
     timestamps: true
@@ -51,3 +59,16 @@ Product.belongsTo(Category, {
 });
 
 module.exports = Product;
+
+const User = require('./User');
+
+// Владелец товара
+Product.belongsTo(User, {
+    foreignKey: 'userId',
+    as: 'owner'
+});
+
+User.hasMany(Product, {
+    foreignKey: 'userId',
+    as: 'products'
+});

@@ -9,8 +9,11 @@
     "db:init": "node src/data/seed.js"
   },
   "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "dotenv": "^17.2.3",
     "express": "^4.18.2",
     "fs-extra": "^11.3.3",
+    "jsonwebtoken": "^9.0.3",
     "multer": "^2.0.2",
     "path": "^0.12.7",
     "sequelize": "^6.32.1",
