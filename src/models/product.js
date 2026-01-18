@@ -17,25 +17,34 @@ const Product = sequelize.define('Product', {
         allowNull: true
     },
     price: {
-        type: DataTypes.DECIMAL(10, 2), // 10 цифр, 2 после запятой
+        type: DataTypes.DECIMAL(10, 2),
         allowNull: false
     },
     inStock: {
         type: DataTypes.BOOLEAN,
         defaultValue: true
+    },
+    imageUrl: {
+        type: DataTypes.STRING,
+        allowNull: true,
+        defaultValue: null
+    },
+    images: {
+        type: DataTypes.JSON, // JSON массив для нескольких изображений
+        allowNull: true,
+        defaultValue: []
     }
 }, {
     tableName: 'products',
     timestamps: true
 });
 
-// Устанавливаем связь: Категория имеет много Продуктов
+// Связи
 Category.hasMany(Product, {
     foreignKey: 'categoryId',
     as: 'products'
 });
 
-// Продукт принадлежит одной Категории
 Product.belongsTo(Category, {
     foreignKey: 'categoryId',
     as: 'category'

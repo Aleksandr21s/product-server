@@ -1,7 +1,6 @@
 const { DataTypes } = require('sequelize');
 const { sequelize } = require('../database');
 
-// Модель = таблица в базе данных
 const Category = sequelize.define('Category', {
     id: {
         type: DataTypes.INTEGER,
@@ -16,10 +15,15 @@ const Category = sequelize.define('Category', {
     description: {
         type: DataTypes.TEXT,
         allowNull: true
+    },
+    imageUrl: {
+        type: DataTypes.STRING,
+        allowNull: true,
+        defaultValue: null
     }
 }, {
     tableName: 'categories',
-    timestamps: true // автоматически добавляет createdAt и updatedAt
+    timestamps: true
 });
 
 module.exports = Category;
