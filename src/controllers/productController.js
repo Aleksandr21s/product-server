@@ -1,61 +1,105 @@
+const { Product, Category, Review, User } = require('../models');
 const { Op } = require('sequelize');
-const Product = require('../models/product');
-const Category = require('../models/Category');
-const User = require('../models/User');
-const { getPublicUrl, moveFileToPermanent } = require('../middleware/upload');
-const fs = require('fs-extra');
-const path = require('path');
 
-// Получить все товары
+// Получить все товары с пагинацией и фильтрами
 const getAllProducts = async (req, res) => {
     try {
-        // Если пользователь авторизован, можно показывать только его товары
-        // Или все товары, если он админ
+        const page = parseInt(req.query.page) || 1;
+        const limit = parseInt(req.query.limit) || 10;
+        const offset = (page - 1) * limit;
+        
+        const categoryId = req.query.categoryId;
+        const minPrice = req.query.minPrice;
+        const maxPrice = req.query.maxPrice;
+        const search = req.query.search;
+        const sortBy = req.query.sortBy || 'createdAt';
+        const sortOrder = req.query.sortOrder || 'DESC';
+        
+        // Построение условий WHERE
         const whereCondition = {};
         
-        if (req.userId) {
-            const user = await User.findByPk(req.userId);
-            if (!user || user.role !== 'admin') {
-                whereCondition.userId = req.userId;
-            }
+        if (categoryId) {
+            whereCondition.categoryId = categoryId;
         }
         
-        const products = await Product.findAll({
+        if (minPrice || maxPrice) {
+            whereCondition.price = {};
+            if (minPrice) whereCondition.price[Op.gte] = parseFloat(minPrice);
+            if (maxPrice) whereCondition.price[Op.lte] = parseFloat(maxPrice);
+        }
+        
+        if (search) {
+            whereCondition.name = { [Op.iLike]: `%${search}%` };
+        }
+        
+        // Получаем товары
+        const { count, rows: products } = await Product.findAndCountAll({
             where: whereCondition,
             include: [
                 {
                     model: Category,
                     as: 'category',
-                    attributes: ['id', 'name', 'imageUrl']
+                    attributes: ['id', 'name']
                 },
                 {
-                    model: User,
-                    as: 'owner',
-                    attributes: ['id', 'username', 'email', 'firstName', 'lastName']
+                    model: Review,
+                    as: 'reviews',
+                    attributes: ['id', 'rating'],
+                    required: false
                 }
             ],
-            order: [['createdAt', 'DESC']]
+            limit,
+            offset,
+            order: [[sortBy, sortOrder]],
+            distinct: true
         });
         
-        // Добавляем полные URL к изображениям
-        const productsWithFullUrls = products.map(product => ({
-            ...product.toJSON(),
-            imageUrl: product.imageUrl ? `${req.protocol}://${req.get('host')}${product.imageUrl}` : null,
-            images: product.images ? product.images.map(img => 
-                `${req.protocol}://${req.get('host')}${img}`
-            ) : []
-        }));
+        // Вычисляем средний рейтинг для каждого товара
+        const productsWithStats = products.map(product => {
+            const productJson = product.toJSON();
+            const reviews = productJson.reviews || [];
+            
+            if (reviews.length > 0) {
+                const totalRating = reviews.reduce((sum, review) => sum + review.rating, 0);
+                productJson.averageRating = (totalRating / reviews.length).toFixed(1);
+                productJson.reviewCount = reviews.length;
+            } else {
+                productJson.averageRating = null;
+                productJson.reviewCount = 0;
+            }
+            
+            delete productJson.reviews;
+            return productJson;
+        });
+        
+        const totalPages = Math.ceil(count / limit);
         
         res.json({
             success: true,
-            count: products.length,
-            data: productsWithFullUrls
+            data: productsWithStats,
+            pagination: {
+                page,
+                limit,
+                totalItems: count,
+                totalPages,
+                hasNextPage: page < totalPages,
+                hasPrevPage: page > 1
+            },
+            filters: {
+                categoryId,
+                minPrice,
+                maxPrice,
+                search,
+                sortBy,
+                sortOrder
+            }
         });
     } catch (error) {
+        console.error('Ошибка при получении товаров:', error);
         res.status(500).json({
             success: false,
             message: 'Ошибка при получении товаров',
-            error: error.message
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
         });
     }
 };
@@ -65,28 +109,22 @@ const getProductById = async (req, res) => {
     try {
         const { id } = req.params;
         
-        const whereCondition = { id };
-        
-        // Если пользователь не админ, проверяем владельца
-        if (req.userId) {
-            const user = await User.findByPk(req.userId);
-            if (!user || user.role !== 'admin') {
-                whereCondition.userId = req.userId;
-            }
-        }
-        
-        const product = await Product.findOne({
-            where: whereCondition,
+        const product = await Product.findByPk(id, {
             include: [
                 {
                     model: Category,
                     as: 'category',
-                    attributes: ['id', 'name', 'description', 'imageUrl']
+                    attributes: ['id', 'name', 'description']
                 },
                 {
-                    model: User,
-                    as: 'owner',
-                    attributes: ['id', 'username', 'email', 'firstName', 'lastName']
+                    model: Review,
+                    as: 'reviews',
+                    include: [{
+                        model: User,
+                        as: 'user',
+                        attributes: ['id', 'firstName', 'lastName', 'avatar']
+                    }],
+                    order: [['createdAt', 'DESC']]
                 }
             ]
         });
@@ -94,46 +132,49 @@ const getProductById = async (req, res) => {
         if (!product) {
             return res.status(404).json({
                 success: false,
-                message: 'Товар не найден или у вас нет прав для его просмотра'
+                message: 'Товар не найден'
             });
         }
         
-        // Добавляем полные URL к изображениям
-        const productWithFullUrls = {
-            ...product.toJSON(),
-            imageUrl: product.imageUrl ? `${req.protocol}://${req.get('host')}${product.imageUrl}` : null,
-            images: product.images ? product.images.map(img => 
-                `${req.protocol}://${req.get('host')}${img}`
-            ) : []
-        };
+        // Вычисляем статистику отзывов
+        const productJson = product.toJSON();
+        const reviews = productJson.reviews || [];
+        
+        if (reviews.length > 0) {
+            const totalRating = reviews.reduce((sum, review) => sum + review.rating, 0);
+            productJson.averageRating = (totalRating / reviews.length).toFixed(1);
+            productJson.reviewCount = reviews.length;
+            
+            // Распределение по рейтингам
+            const ratingDistribution = { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 };
+            reviews.forEach(review => {
+                ratingDistribution[review.rating]++;
+            });
+            productJson.ratingDistribution = ratingDistribution;
+        } else {
+            productJson.averageRating = null;
+            productJson.reviewCount = 0;
+            productJson.ratingDistribution = { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 };
+        }
         
         res.json({
             success: true,
-            data: productWithFullUrls
+            data: productJson
         });
     } catch (error) {
+        console.error('Ошибка при получении товара:', error);
         res.status(500).json({
             success: false,
             message: 'Ошибка при получении товара',
-            error: error.message
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
         });
     }
 };
 
-// Создать новый товар
+// Создать товар
 const createProduct = async (req, res) => {
     try {
-        // Проверяем авторизацию
-        if (!req.userId) {
-            return res.status(401).json({
-                success: false,
-                message: 'Требуется авторизация'
-            });
-        }
-        
-        const { name, description, price, categoryId, inStock } = req.body;
-        let imageUrl = null;
-        let images = [];
+        const { name, image, description, price, categoryId, stockQuantity } = req.body;
         
         // Проверяем обязательные поля
         if (!name || !price || !categoryId) {
@@ -152,81 +193,26 @@ const createProduct = async (req, res) => {
             });
         }
         
-        // Проверяем существование пользователя
-        const user = await User.findByPk(req.userId);
-        if (!user) {
-            return res.status(401).json({
-                success: false,
-                message: 'Пользователь не найден'
-            });
-        }
-        
-        // Обрабатываем основное изображение
-        if (req.file) {
-            const filename = req.file.filename;
-            await moveFileToPermanent(filename, 'products');
-            imageUrl = getPublicUrl(filename, 'products');
-        }
-        
-        // Обрабатываем дополнительные изображения
-        if (req.files && req.files.length > 0) {
-            for (const file of req.files) {
-                const filename = file.filename;
-                await moveFileToPermanent(filename, 'products');
-                images.push(getPublicUrl(filename, 'products'));
-            }
-        }
-        
         const product = await Product.create({
             name,
+            image: image || null,
             description: description || '',
             price: parseFloat(price),
             categoryId,
-            userId: req.userId, // Добавляем владельца
-            inStock: inStock !== undefined ? inStock : true,
-            imageUrl,
-            images
-        });
-        
-        // Получаем созданный товар с категорией и владельцем
-        const productWithRelations = await Product.findByPk(product.id, {
-            include: [
-                {
-                    model: Category,
-                    as: 'category',
-                    attributes: ['id', 'name']
-                },
-                {
-                    model: User,
-                    as: 'owner',
-                    attributes: ['id', 'username', 'email']
-                }
-            ]
+            stockQuantity: stockQuantity || 0
         });
         
         res.status(201).json({
             success: true,
             message: 'Товар успешно создан',
-            data: productWithRelations
+            data: product
         });
     } catch (error) {
-        // Удаляем загруженные файлы в случае ошибки
-        const filesToDelete = [];
-        if (req.file) filesToDelete.push(`./uploads/temp/${req.file.filename}`);
-        if (req.files) {
-            req.files.forEach(file => {
-                filesToDelete.push(`./uploads/temp/${file.filename}`);
-            });
-        }
-        
-        filesToDelete.forEach(async filepath => {
-            await fs.remove(filepath).catch(console.error);
-        });
-        
+        console.error('Ошибка при создании товара:', error);
         res.status(500).json({
             success: false,
             message: 'Ошибка при создании товара',
-            error: error.message
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
         });
     }
 };
@@ -235,15 +221,7 @@ const createProduct = async (req, res) => {
 const updateProduct = async (req, res) => {
     try {
         const { id } = req.params;
-        const { name, description, price, categoryId, inStock } = req.body;
-        
-        // Проверяем авторизацию
-        if (!req.userId) {
-            return res.status(401).json({
-                success: false,
-                message: 'Требуется авторизация'
-            });
-        }
+        const { name, image, description, price, categoryId, stockQuantity } = req.body;
         
         const product = await Product.findByPk(id);
         
@@ -251,15 +229,6 @@ const updateProduct = async (req, res) => {
             return res.status(404).json({
                 success: false,
                 message: 'Товар не найден'
-            });
-        }
-        
-        // Проверяем права доступа (админ или владелец)
-        const user = await User.findByPk(req.userId);
-        if (user.role !== 'admin' && product.userId !== req.userId) {
-            return res.status(403).json({
-                success: false,
-                message: 'У вас нет прав для редактирования этого товара'
             });
         }
         
@@ -274,63 +243,27 @@ const updateProduct = async (req, res) => {
             }
         }
         
-        let imageUrl = product.imageUrl;
-        
-        // Обрабатываем новое основное изображение
-        if (req.file) {
-            const filename = req.file.filename;
-            await moveFileToPermanent(filename, 'products');
-            imageUrl = getPublicUrl(filename, 'products');
-            
-            // Удаляем старое изображение, если оно было
-            if (product.imageUrl) {
-                const oldFilename = path.basename(product.imageUrl);
-                const oldPath = `./uploads/products/${oldFilename}`;
-                await fs.remove(oldPath).catch(console.error);
-            }
-        }
-        
         // Обновляем поля
         await product.update({
             name: name || product.name,
+            image: image !== undefined ? image : product.image,
             description: description !== undefined ? description : product.description,
             price: price !== undefined ? parseFloat(price) : product.price,
             categoryId: categoryId || product.categoryId,
-            inStock: inStock !== undefined ? inStock : product.inStock,
-            imageUrl
-        });
-        
-        // Получаем обновлённый товар с категорией и владельцем
-        const updatedProduct = await Product.findByPk(id, {
-            include: [
-                {
-                    model: Category,
-                    as: 'category',
-                    attributes: ['id', 'name']
-                },
-                {
-                    model: User,
-                    as: 'owner',
-                    attributes: ['id', 'username', 'email']
-                }
-            ]
+            stockQuantity: stockQuantity !== undefined ? stockQuantity : product.stockQuantity
         });
         
         res.json({
             success: true,
             message: 'Товар успешно обновлён',
-            data: updatedProduct
+            data: product
         });
     } catch (error) {
-        // Удаляем загруженный файл в случае ошибки
-        if (req.file) {
-            await fs.remove(`./uploads/temp/${req.file.filename}`).catch(console.error);
-        }
-        
+        console.error('Ошибка при обновлении товара:', error);
         res.status(500).json({
             success: false,
             message: 'Ошибка при обновлении товара',
-            error: error.message
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
         });
     }
 };
@@ -340,14 +273,6 @@ const deleteProduct = async (req, res) => {
     try {
         const { id } = req.params;
         
-        // Проверяем авторизацию
-        if (!req.userId) {
-            return res.status(401).json({
-                success: false,
-                message: 'Требуется авторизация'
-            });
-        }
-        
         const product = await Product.findByPk(id);
         
         if (!product) {
@@ -355,31 +280,6 @@ const deleteProduct = async (req, res) => {
                 success: false,
                 message: 'Товар не найден'
             });
-        }
-        
-        // Проверяем права доступа (админ или владелец)
-        const user = await User.findByPk(req.userId);
-        if (user.role !== 'admin' && product.userId !== req.userId) {
-            return res.status(403).json({
-                success: false,
-                message: 'У вас нет прав для удаления этого товара'
-            });
-        }
-        
-        // Удаляем основное изображение
-        if (product.imageUrl) {
-            const filename = path.basename(product.imageUrl);
-            const imagePath = `./uploads/products/${filename}`;
-            await fs.remove(imagePath).catch(console.error);
-        }
-        
-        // Удаляем дополнительные изображения
-        if (product.images && product.images.length > 0) {
-            for (const imageUrl of product.images) {
-                const filename = path.basename(imageUrl);
-                const imagePath = `./uploads/products/${filename}`;
-                await fs.remove(imagePath).catch(console.error);
-            }
         }
         
         await product.destroy();
@@ -390,260 +290,19 @@ const deleteProduct = async (req, res) => {
             data: product
         });
     } catch (error) {
+        console.error('Ошибка при удалении товара:', error);
         res.status(500).json({
             success: false,
             message: 'Ошибка при удалении товара',
-            error: error.message
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
         });
     }
 };
 
-// Загрузить изображение для товара
-const uploadProductImage = async (req, res) => {
-    try {
-        if (!req.file) {
-            return res.status(400).json({
-                success: false,
-                message: 'Файл не загружен'
-            });
-        }
-        
-        // Проверяем авторизацию
-        if (!req.userId) {
-            await fs.remove(`./uploads/temp/${req.file.filename}`).catch(console.error);
-            return res.status(401).json({
-                success: false,
-                message: 'Требуется авторизация'
-            });
-        }
-        
-        const { id } = req.params;
-        const product = await Product.findByPk(id);
-        
-        if (!product) {
-            await fs.remove(`./uploads/temp/${req.file.filename}`).catch(console.error);
-            return res.status(404).json({
-                success: false,
-                message: 'Товар не найден'
-            });
-        }
-        
-        // Проверяем права доступа (админ или владелец)
-        const user = await User.findByPk(req.userId);
-        if (user.role !== 'admin' && product.userId !== req.userId) {
-            await fs.remove(`./uploads/temp/${req.file.filename}`).catch(console.error);
-            return res.status(403).json({
-                success: false,
-                message: 'У вас нет прав для редактирования этого товара'
-            });
-        }
-        
-        const filename = req.file.filename;
-        await moveFileToPermanent(filename, 'products');
-        const imageUrl = getPublicUrl(filename, 'products');
-        
-        // Удаляем старое изображение, если оно было
-        if (product.imageUrl) {
-            const oldFilename = path.basename(product.imageUrl);
-            const oldPath = `./uploads/products/${oldFilename}`;
-            await fs.remove(oldPath).catch(console.error);
-        }
-        
-        // Обновляем товар
-        await product.update({ imageUrl });
-        
-        res.json({
-            success: true,
-            message: 'Изображение успешно загружено',
-            data: {
-                imageUrl: `${req.protocol}://${req.get('host')}${imageUrl}`,
-                filename
-            }
-        });
-    } catch (error) {
-        if (req.file) {
-            await fs.remove(`./uploads/temp/${req.file.filename}`).catch(console.error);
-        }
-        
-        res.status(500).json({
-            success: false,
-            message: 'Ошибка при загрузке изображения',
-            error: error.message
-        });
-    }
-};
-
-// Загрузить дополнительные изображения для товара
-const uploadProductImages = async (req, res) => {
-    try {
-        if (!req.files || req.files.length === 0) {
-            return res.status(400).json({
-                success: false,
-                message: 'Файлы не загружены'
-            });
-        }
-        
-        // Проверяем авторизацию
-        if (!req.userId) {
-            // Удаляем все загруженные файлы
-            req.files.forEach(async file => {
-                await fs.remove(`./uploads/temp/${file.filename}`).catch(console.error);
-            });
-            return res.status(401).json({
-                success: false,
-                message: 'Требуется авторизация'
-            });
-        }
-        
-        const { id } = req.params;
-        const product = await Product.findByPk(id);
-        
-        if (!product) {
-            // Удаляем все загруженные файлы
-            req.files.forEach(async file => {
-                await fs.remove(`./uploads/temp/${file.filename}`).catch(console.error);
-            });
-            return res.status(404).json({
-                success: false,
-                message: 'Товар не найден'
-            });
-        }
-        
-        // Проверяем права доступа (админ или владелец)
-        const user = await User.findByPk(req.userId);
-        if (user.role !== 'admin' && product.userId !== req.userId) {
-            // Удаляем все загруженные файлы
-            req.files.forEach(async file => {
-                await fs.remove(`./uploads/temp/${file.filename}`).catch(console.error);
-            });
-            return res.status(403).json({
-                success: false,
-                message: 'У вас нет прав для редактирования этого товара'
-            });
-        }
-        
-        const newImages = [];
-        
-        // Обрабатываем каждый файл
-        for (const file of req.files) {
-            const filename = file.filename;
-            await moveFileToPermanent(filename, 'products');
-            newImages.push(getPublicUrl(filename, 'products'));
-        }
-        
-        // Обновляем массив изображений
-        const currentImages = product.images || [];
-        const updatedImages = [...currentImages, ...newImages];
-        
-        await product.update({ images: updatedImages });
-        
-        res.json({
-            success: true,
-            message: `Добавлено ${req.files.length} изображений`,
-            data: {
-                images: updatedImages.map(img => 
-                    `${req.protocol}://${req.get('host')}${img}`
-                ),
-                count: updatedImages.length
-            }
-        });
-    } catch (error) {
-        // Удаляем все загруженные файлы в случае ошибки
-        if (req.files) {
-            req.files.forEach(async file => {
-                await fs.remove(`./uploads/temp/${file.filename}`).catch(console.error);
-            });
-        }
-        
-        res.status(500).json({
-            success: false,
-            message: 'Ошибка при загрузке изображений',
-            error: error.message
-        });
-    }
-};
-
-// Удалить изображение из товара
-const deleteProductImage = async (req, res) => {
-    try {
-        const { id, imageIndex } = req.params;
-        
-        // Проверяем авторизацию
-        if (!req.userId) {
-            return res.status(401).json({
-                success: false,
-                message: 'Требуется авторизация'
-            });
-        }
-        
-        const product = await Product.findByPk(id);
-        
-        if (!product) {
-            return res.status(404).json({
-                success: false,
-                message: 'Товар не найден'
-            });
-        }
-        
-        // Проверяем права доступа (админ или владелец)
-        const user = await User.findByPk(req.userId);
-        if (user.role !== 'admin' && product.userId !== req.userId) {
-            return res.status(403).json({
-                success: false,
-                message: 'У вас нет прав для редактирования этого товара'
-            });
-        }
-        
-        const images = product.images || [];
-        const index = parseInt(imageIndex);
-        
-        if (index < 0 || index >= images.length) {
-            return res.status(400).json({
-                success: false,
-                message: 'Неверный индекс изображения'
-            });
-        }
-        
-        // Получаем URL удаляемого изображения
-        const imageUrlToDelete = images[index];
-        const filename = path.basename(imageUrlToDelete);
-        
-        // Удаляем файл с диска
-        const imagePath = `./uploads/products/${filename}`;
-        await fs.remove(imagePath).catch(console.error);
-        
-        // Удаляем из массива
-        const updatedImages = images.filter((_, i) => i !== index);
-        
-        await product.update({ images: updatedImages });
-        
-        res.json({
-            success: true,
-            message: 'Изображение успешно удалено',
-            data: {
-                images: updatedImages.map(img => 
-                    `${req.protocol}://${req.get('host')}${img}`
-                ),
-                count: updatedImages.length
-            }
-        });
-    } catch (error) {
-        res.status(500).json({
-            success: false,
-            message: 'Ошибка при удалении изображения',
-            error: error.message
-        });
-    }
-};
-
-// Экспортируем все функции
 module.exports = {
     getAllProducts,
     getProductById,
     createProduct,
     updateProduct,
-    deleteProduct,
-    uploadProductImage,
-    uploadProductImages,
-    deleteProductImage
+    deleteProduct
 };

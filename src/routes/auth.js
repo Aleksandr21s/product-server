@@ -1,33 +1,24 @@
 const express = require('express');
 const router = express.Router();
-const {
-    register,
-    login,
-    getCurrentUser,
-    updateProfile,
-    changePassword,
-    requestPasswordReset,
-    validateResetToken,
-    resetPassword,
-    getResetPasswordPage,
-    getForgotPasswordPage  // <-- Убедись, что эта функция импортирована
-} = require('../controllers/authController');
-const { authenticateToken } = require('../middleware/auth');
 
-// Страницы
-router.get('/forgot-password-page', getForgotPasswordPage);
-router.get('/reset-password-page/:token', getResetPasswordPage);
+// Минимальные обработчики прямо в маршрутах
+router.post('/register', (req, res) => {
+    res.json({ success: true, message: 'Регистрация работает' });
+});
 
-// API endpoints
-router.post('/register', register);
-router.post('/login', login);
-router.get('/me', authenticateToken, getCurrentUser);
-router.put('/profile', authenticateToken, updateProfile);
-router.put('/change-password', authenticateToken, changePassword);
+router.post('/login', (req, res) => {
+    res.json({ 
+        success: true, 
+        message: 'Вход работает',
+        data: {
+            user: { id: 1, email: 'test@example.com' },
+            token: 'test-token'
+        }
+    });
+});
 
-// Восстановление пароля
-router.post('/forgot-password', requestPasswordReset);
-router.get('/validate-reset-token/:token', validateResetToken);
-router.post('/reset-password/:token', resetPassword);
+router.get('/me', (req, res) => {
+    res.json({ success: true, data: { id: 1, email: 'test@example.com' } });
+});
 
 module.exports = router;

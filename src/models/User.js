@@ -8,15 +8,6 @@ const User = sequelize.define('User', {
         primaryKey: true,
         autoIncrement: true
     },
-    username: {
-        type: DataTypes.STRING,
-        allowNull: false,
-        unique: true,
-        validate: {
-            len: [3, 30],
-            is: /^[a-zA-Z0-9_]+$/ // Только буквы, цифры и подчеркивание
-        }
-    },
     email: {
         type: DataTypes.STRING,
         allowNull: false,
@@ -29,12 +20,8 @@ const User = sequelize.define('User', {
         type: DataTypes.STRING,
         allowNull: false,
         validate: {
-            len: [6, 100] // Минимум 6 символов
+            len: [6, 100]
         }
-    },
-    role: {
-        type: DataTypes.ENUM('user', 'admin'),
-        defaultValue: 'user'
     },
     firstName: {
         type: DataTypes.STRING,
@@ -43,6 +30,27 @@ const User = sequelize.define('User', {
     lastName: {
         type: DataTypes.STRING,
         allowNull: true
+    },
+    avatar: {
+        type: DataTypes.STRING,
+        allowNull: true,
+        defaultValue: null
+    },
+    activationLink: {
+        type: DataTypes.STRING,
+        allowNull: true
+    },
+    activated: {
+        type: DataTypes.BOOLEAN,
+        defaultValue: false
+    },
+    resetToken: {
+        type: DataTypes.STRING,
+        allowNull: true
+    },
+    role: {
+        type: DataTypes.ENUM('user', 'admin'),
+        defaultValue: 'user'
     },
     isActive: {
         type: DataTypes.BOOLEAN,
@@ -56,14 +64,12 @@ const User = sequelize.define('User', {
     tableName: 'users',
     timestamps: true,
     hooks: {
-        // Хешируем пароль перед сохранением
         beforeCreate: async (user) => {
             if (user.password) {
                 const salt = await bcrypt.genSalt(10);
                 user.password = await bcrypt.hash(user.password, salt);
             }
         },
-        // Хешируем пароль при обновлении, если он изменился
         beforeUpdate: async (user) => {
             if (user.changed('password')) {
                 const salt = await bcrypt.genSalt(10);
@@ -73,15 +79,16 @@ const User = sequelize.define('User', {
     }
 });
 
-// Метод для проверки пароля
+// Методы
 User.prototype.validatePassword = async function(password) {
     return await bcrypt.compare(password, this.password);
 };
 
-// Метод для получения данных без пароля
 User.prototype.toSafeObject = function() {
     const values = { ...this.toJSON() };
     delete values.password;
+    delete values.resetToken;
+    delete values.activationLink;
     return values;
 };
 

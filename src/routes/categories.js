@@ -5,27 +5,17 @@ const {
     getCategoryById,
     createCategory,
     updateCategory,
-    deleteCategory,
-    uploadCategoryImage
+    deleteCategory
 } = require('../controllers/categoryController');
-const { uploadSingle } = require('../middleware/upload');
+const { authenticateToken, requireAdmin } = require('../middleware/auth');
 
-// GET /api/categories - получить все категории
+// Публичные маршруты
 router.get('/', getAllCategories);
-
-// GET /api/categories/:id - получить категорию по ID
 router.get('/:id', getCategoryById);
 
-// POST /api/categories - создать новую категорию
-router.post('/', uploadSingle('image'), createCategory);
-
-// PUT /api/categories/:id - обновить категорию
-router.put('/:id', uploadSingle('image'), updateCategory);
-
-// DELETE /api/categories/:id - удалить категорию
-router.delete('/:id', deleteCategory);
-
-// POST /api/categories/:id/upload - загрузить изображение для категории
-router.post('/:id/upload', uploadSingle('image'), uploadCategoryImage);
+// Защищённые маршруты (требуется админ)
+router.post('/', authenticateToken, requireAdmin, createCategory);
+router.put('/:id', authenticateToken, requireAdmin, updateCategory);
+router.delete('/:id', authenticateToken, requireAdmin, deleteCategory);
 
 module.exports = router;

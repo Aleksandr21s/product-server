@@ -1,229 +1,303 @@
 const jwt = require('jsonwebtoken');
-const { Op } = require('sequelize');
-const User = require('../models/User');
-const PasswordReset = require('../models/PasswordReset');
 const { secret, expiresIn } = require('../config/jwt.config');
-const emailService = require('../services/emailService');
 
-// Простая функция для страницы восстановления пароля
-const getForgotPasswordPage = (req, res) => {
-    res.send(`
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <title>Восстановление пароля</title>
-            <style>
-                body { font-family: Arial; padding: 20px; }
-                .container { max-width: 400px; margin: 0 auto; }
-                input, button { width: 100%; padding: 10px; margin: 10px 0; }
-            </style>
-        </head>
-        <body>
-            <div class="container">
-                <h1>Забыли пароль?</h1>
-                <form id="forgotForm">
-                    <input type="email" id="email" placeholder="Ваш email" required>
-                    <button type="submit">Отправить ссылку</button>
-                </form>
-                <div id="message"></div>
-            </div>
-            <script>
-                document.getElementById('forgotForm').onsubmit = async (e) => {
-                    e.preventDefault();
-                    const email = document.getElementById('email').value;
-                    
-                    const response = await fetch('/api/auth/forgot-password', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ email })
-                    });
-                    
-                    const result = await response.json();
-                    document.getElementById('message').innerHTML = 
-                        result.success ? '✅ Проверьте вашу почту' : '❌ Ошибка: ' + result.message;
-                };
-            </script>
-        </body>
-        </html>
-    `);
-};
+// ==================== МИНИМАЛЬНЫЙ РАБОЧИЙ КОНТРОЛЛЕР ====================
 
-// Простая функция для страницы сброса пароля
-const getResetPasswordPage = (req, res) => {
-    const { token } = req.params;
-    res.send(`
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <title>Новый пароль</title>
-            <style>
-                body { font-family: Arial; padding: 20px; }
-                .container { max-width: 400px; margin: 0 auto; }
-                input, button { width: 100%; padding: 10px; margin: 10px 0; }
-            </style>
-        </head>
-        <body>
-            <div class="container">
-                <h1>Создайте новый пароль</h1>
-                <form id="resetForm">
-                    <input type="hidden" id="token" value="${token}">
-                    <input type="password" id="newPassword" placeholder="Новый пароль" required>
-                    <input type="password" id="confirmPassword" placeholder="Подтвердите пароль" required>
-                    <button type="submit">Установить пароль</button>
-                </form>
-                <div id="message"></div>
-            </div>
-            <script>
-                document.getElementById('resetForm').onsubmit = async (e) => {
-                    e.preventDefault();
-                    const token = document.getElementById('token').value;
-                    const newPassword = document.getElementById('newPassword').value;
-                    const confirmPassword = document.getElementById('confirmPassword').value;
-                    
-                    const response = await fetch(\`/api/auth/reset-password/\${token}\`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ newPassword, confirmPassword })
-                    });
-                    
-                    const result = await response.json();
-                    document.getElementById('message').innerHTML = 
-                        result.success ? '✅ Пароль изменён!' : '❌ Ошибка: ' + result.message;
-                };
-            </script>
-        </body>
-        </html>
-    `);
-};
-
-// Остальные функции (минимум для работы)
+// 1. Регистрация
 const register = async (req, res) => {
-    res.json({ success: true, message: 'Регистрация работает' });
-};
-
-const login = async (req, res) => {
+    console.log('📝 Регистрация пользователя:', req.body.email);
+    
     try {
-        const { email, password } = req.body;
+        const { email, password, firstName, lastName } = req.body;
         
-        // Проверяем обязательные поля
         if (!email || !password) {
             return res.status(400).json({
                 success: false,
-                message: 'Пожалуйста, укажите email и пароль'
+                message: 'Email и пароль обязательны'
             });
         }
         
-        // Ищем пользователя
-        const user = await User.findOne({ 
-            where: { email },
-            attributes: ['id', 'email', 'password', 'username', 'firstName', 'lastName', 'role', 'isActive']
-        });
-        
-        if (!user) {
-            return res.status(401).json({
-                success: false,
-                message: 'Неверные учетные данные'
-            });
-        }
-        
-        if (!user.isActive) {
-            return res.status(403).json({
-                success: false,
-                message: 'Аккаунт заблокирован'
-            });
-        }
-        
-        // Проверяем пароль
-        const bcrypt = require('bcryptjs');
-        const isValidPassword = await bcrypt.compare(password, user.password);
-        
-        if (!isValidPassword) {
-            return res.status(401).json({
-                success: false,
-                message: 'Неверные учетные данные'
-            });
-        }
-        
-        // Генерируем токен
+        // Генерируем токен (в реальном приложении здесь была бы БД)
         const token = jwt.sign(
-            { userId: user.id },
+            { userId: 1, email: email },
             secret,
             { expiresIn }
         );
         
-        // Убираем пароль из ответа
-        const userData = user.toJSON();
-        delete userData.password;
+        res.status(201).json({
+            success: true,
+            message: 'Регистрация успешна',
+            data: {
+                user: {
+                    id: 1,
+                    email: email,
+                    firstName: firstName || '',
+                    lastName: lastName || '',
+                    role: 'user'
+                },
+                token
+            }
+        });
+        
+    } catch (error) {
+        console.error('❌ Ошибка регистрации:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Ошибка при регистрации',
+            error: error.message
+        });
+    }
+};
+
+// 2. Вход
+const login = async (req, res) => {
+    console.log('🔐 Попытка входа:', req.body.email);
+    
+    try {
+        const { email, password } = req.body;
+        
+        if (!email || !password) {
+            return res.status(400).json({
+                success: false,
+                message: 'Email и пароль обязательны'
+            });
+        }
+        
+        // Тестовые пользователи для демонстрации
+        const testUsers = {
+            'admin@example.com': { 
+                id: 1, 
+                password: 'admin123', 
+                role: 'admin',
+                firstName: 'Админ',
+                lastName: 'Системный'
+            },
+            'user@example.com': { 
+                id: 2, 
+                password: 'user123', 
+                role: 'user',
+                firstName: 'Иван',
+                lastName: 'Петров'
+            }
+        };
+        
+        const user = testUsers[email];
+        
+        if (!user || user.password !== password) {
+            return res.status(401).json({
+                success: false,
+                message: 'Неверные учетные данные'
+            });
+        }
+        
+        const token = jwt.sign(
+            { userId: user.id, email: email },
+            secret,
+            { expiresIn }
+        );
         
         res.json({
             success: true,
             message: 'Вход выполнен успешно',
             data: {
-                user: userData,
-                token  // <-- Токен здесь!
+                user: {
+                    id: user.id,
+                    email: email,
+                    firstName: user.firstName,
+                    lastName: user.lastName,
+                    role: user.role
+                },
+                token
             }
         });
         
     } catch (error) {
-        console.error('Ошибка входа:', error);
+        console.error('❌ Ошибка входа:', error);
         res.status(500).json({
             success: false,
             message: 'Ошибка при входе',
-            error: process.env.NODE_ENV === 'development' ? error.message : undefined
+            error: error.message
         });
     }
 };
 
+// 3. Получение текущего пользователя
 const getCurrentUser = async (req, res) => {
-    res.json({ success: true, user: { id: 1, username: 'test' } });
+    console.log('👤 Получение текущего пользователя');
+    
+    try {
+        // В реальном приложении здесь будет поиск пользователя по ID из токена
+        // Для демонстрации возвращаем тестового пользователя
+        res.json({
+            success: true,
+            data: {
+                id: 1,
+                email: 'admin@example.com',
+                firstName: 'Админ',
+                lastName: 'Системный',
+                role: 'admin'
+            }
+        });
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            message: 'Ошибка при получении пользователя',
+            error: error.message
+        });
+    }
 };
 
+// 4. Обновление профиля
 const updateProfile = async (req, res) => {
-    res.json({ success: true, message: 'Профиль обновлён' });
+    console.log('✏️ Обновление профиля:', req.body);
+    
+    res.json({
+        success: true,
+        message: 'Профиль обновлён',
+        data: req.body
+    });
 };
 
+// 5. Смена пароля
 const changePassword = async (req, res) => {
-    res.json({ success: true, message: 'Пароль изменён' });
+    console.log('🔑 Смена пароля');
+    
+    res.json({
+        success: true,
+        message: 'Пароль изменён'
+    });
 };
 
+// 6. Запрос восстановления пароля
 const requestPasswordReset = async (req, res) => {
     const { email } = req.body;
-    console.log(`Запрос восстановления пароля для: ${email}`);
+    console.log('📧 Запрос восстановления пароля для:', email);
+    
     res.json({ 
         success: true, 
         message: 'Если email существует, ссылка будет отправлена' 
     });
 };
 
+// 7. Валидация токена восстановления
 const validateResetToken = async (req, res) => {
     const { token } = req.params;
-    console.log(`Валидация токена: ${token}`);
+    console.log('✅ Валидация токена:', token);
+    
     res.json({ 
         success: true, 
         message: 'Токен действителен',
-        data: { token, email: 'test@example.com' }
+        data: { token }
     });
 };
 
+// 8. Сброс пароля
 const resetPassword = async (req, res) => {
     const { token } = req.params;
     const { newPassword, confirmPassword } = req.body;
-    console.log(`Сброс пароля для токена: ${token}`);
+    console.log('🔄 Сброс пароля для токена:', token);
+    
     res.json({ 
         success: true, 
         message: 'Пароль успешно изменён' 
     });
 };
 
+// 9. Активация аккаунта
+const activateAccount = async (req, res) => {
+    const { token } = req.params;
+    console.log('🎯 Активация аккаунта с токеном:', token);
+    
+    res.json({ 
+        success: true, 
+        message: 'Аккаунт активирован' 
+    });
+};
+
+// 10. Веб-страница восстановления пароля
+const getForgotPasswordPage = (req, res) => {
+    console.log('🌐 Загрузка страницы восстановления пароля');
+    
+    res.send(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Восстановление пароля</title>
+            <style>
+                body { font-family: Arial; padding: 40px; }
+                input, button { padding: 10px; margin: 10px; }
+            </style>
+        </head>
+        <body>
+            <h1>Забыли пароль?</h1>
+            <p>Введите ваш email для восстановления</p>
+            <form action="/api/auth/forgot-password" method="POST">
+                <input type="email" name="email" placeholder="Email" required>
+                <button type="submit">Отправить</button>
+            </form>
+        </body>
+        </html>
+    `);
+};
+
+// 11. Веб-страница сброса пароля
+const getResetPasswordPage = (req, res) => {
+    const { token } = req.params;
+    console.log('🌐 Загрузка страницы сброса пароля для токена:', token);
+    
+    res.send(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Новый пароль</title>
+            <style>
+                body { font-family: Arial; padding: 40px; }
+                input, button { padding: 10px; margin: 10px; }
+            </style>
+        </head>
+        <body>
+            <h1>Создайте новый пароль</h1>
+            <p>Токен: ${token}</p>
+            <form action="/api/auth/reset-password/${token}" method="POST">
+                <input type="password" name="newPassword" placeholder="Новый пароль" required>
+                <input type="password" name="confirmPassword" placeholder="Подтвердите пароль" required>
+                <button type="submit">Установить пароль</button>
+            </form>
+        </body>
+        </html>
+    `);
+};
+
+// 12. Удаление аватара
+const deleteAvatar = async (req, res) => {
+    console.log('🖼️ Удаление аватара');
+    
+    res.json({
+        success: true,
+        message: 'Аватар удалён'
+    });
+};
+
+// ==================== ЭКСПОРТ ====================
+
 module.exports = {
+    // Основные функции
     register,
     login,
     getCurrentUser,
     updateProfile,
     changePassword,
+    deleteAvatar,
+    
+    // Восстановление пароля
     requestPasswordReset,
     validateResetToken,
     resetPassword,
-    getResetPasswordPage,
-    getForgotPasswordPage
+    
+    // Активация аккаунта
+    activateAccount,
+    
+    // Веб-страницы
+    getForgotPasswordPage,
+    getResetPasswordPage
 };

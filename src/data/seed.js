@@ -1,357 +1,259 @@
-const { sequelize } = require('../database');
-const User = require('../models/User');
-const Category = require('../models/Category');
-const Product = require('../models/product');
-const PasswordReset = require('../models/PasswordReset');
-const fs = require('fs-extra');
-const path = require('path');
+const { sequelize, User, Category, Product, Review, Order, OrderItem } = require('../models');
 const bcrypt = require('bcryptjs');
 
 const seedDatabase = async () => {
     try {
-        console.log('🔄 Начинаю заполнение базы данных...');
+        console.log('🔄 Начинаю заполнение базы данных новой схемы...');
         
-        // Синхронизируем модели с базой данных
         await sequelize.sync({ force: true });
         console.log('✅ База данных синхронизирована');
-        
-        // Создаём папки для загрузок
-        await fs.ensureDir('./uploads/products');
-        await fs.ensureDir('./uploads/categories');
-        await fs.ensureDir('./uploads/temp');
-        await fs.ensureDir('./public/images');
-        console.log('✅ Папки для загрузок созданы');
         
         // Создаём пользователей
         const salt = await bcrypt.genSalt(10);
         
         const users = await User.bulkCreate([
             {
-                username: 'admin',
                 email: 'admin@example.com',
                 password: await bcrypt.hash('admin123', salt),
-                firstName: 'Администратор',
-                lastName: 'Системы',
+                firstName: 'Админ',
+                lastName: 'Системный',
                 role: 'admin',
-                isActive: true,
-                lastLogin: new Date()
+                activated: true,
+                isActive: true
             },
             {
-                username: 'user1',
                 email: 'user1@example.com',
                 password: await bcrypt.hash('user123', salt),
                 firstName: 'Иван',
                 lastName: 'Петров',
                 role: 'user',
-                isActive: true,
-                lastLogin: new Date()
+                activated: true,
+                isActive: true
             },
             {
-                username: 'user2',
                 email: 'user2@example.com',
                 password: await bcrypt.hash('user123', salt),
                 firstName: 'Мария',
                 lastName: 'Сидорова',
                 role: 'user',
-                isActive: true,
-                lastLogin: new Date()
-            },
-            {
-                username: 'inactive_user',
-                email: 'inactive@example.com',
-                password: await bcrypt.hash('user123', salt),
-                firstName: 'Неактивный',
-                lastName: 'Пользователь',
-                role: 'user',
-                isActive: false,
-                lastLogin: null
+                activated: true,
+                isActive: true
             }
         ]);
         console.log(`✅ Создано ${users.length} пользователей`);
         
         // Создаём категории
         const categories = await Category.bulkCreate([
-            { 
-                name: 'Электроника', 
-                description: 'Техника и гаджеты',
-                imageUrl: null
-            },
-            { 
-                name: 'Книги', 
-                description: 'Художественная и учебная литература',
-                imageUrl: null
-            },
-            { 
-                name: 'Одежда', 
-                description: 'Мужская и женская одежда',
-                imageUrl: null
-            },
-            { 
-                name: 'Продукты питания', 
-                description: 'Продукты питания и напитки',
-                imageUrl: null
-            },
-            { 
-                name: 'Спорт', 
-                description: 'Спортивные товары и инвентарь',
-                imageUrl: null
-            }
+            { name: 'Электроника', description: 'Техника и гаджеты' },
+            { name: 'Книги', description: 'Художественная и учебная литература' },
+            { name: 'Одежда', description: 'Мужская и женская одежда' },
+            { name: 'Продукты питания', description: 'Продукты питания' },
+            { name: 'Дом и сад', description: 'Товары для дома и сада' }
         ]);
         console.log(`✅ Создано ${categories.length} категорий`);
         
         // Создаём товары
         const products = await Product.bulkCreate([
+            // Электроника
             {
                 name: 'Ноутбук Dell XPS 13',
-                description: '13-дюймовый ноутбук с процессором Intel Core i7, 16GB RAM, 512GB SSD',
+                image: 'laptop.jpg',
+                description: '13-дюймовый ноутбук с процессором Intel Core i7',
                 price: 129999.99,
                 categoryId: 1,
-                userId: 1,
-                inStock: true,
-                imageUrl: null,
-                images: []
+                stockQuantity: 10
             },
             {
                 name: 'Смартфон iPhone 14 Pro',
-                description: 'Смартфон Apple с камерой 48 МП, процессором A16 Bionic',
+                image: 'iphone.jpg',
+                description: 'Смартфон Apple с камерой 48 МП',
                 price: 99999.50,
                 categoryId: 1,
-                userId: 2,
-                inStock: true,
-                imageUrl: null,
-                images: []
+                stockQuantity: 15
             },
             {
                 name: 'Наушники Sony WH-1000XM5',
-                description: 'Беспроводные наушники с шумоподавлением, 30 часов работы',
+                image: 'headphones.jpg',
+                description: 'Беспроводные наушники с шумоподавлением',
                 price: 29999.00,
                 categoryId: 1,
-                userId: 1,
-                inStock: true,
-                imageUrl: null,
-                images: []
+                stockQuantity: 25
             },
+            // Книги
             {
                 name: 'Книга "Чистый код"',
+                image: 'clean_code.jpg',
                 description: 'Роберт Мартин. Искусство написания чистого кода',
                 price: 2499.00,
                 categoryId: 2,
-                userId: 3,
-                inStock: false,
-                imageUrl: null,
-                images: []
+                stockQuantity: 50
             },
             {
                 name: 'Книга "Гарри Поттер и философский камень"',
-                description: 'Дж. К. Роулинг. Первая книга серии о Гарри Поттере',
+                image: 'harry_potter.jpg',
+                description: 'Дж. К. Роулинг. Первая книга серии',
                 price: 899.00,
                 categoryId: 2,
-                userId: 2,
-                inStock: true,
-                imageUrl: null,
-                images: []
+                stockQuantity: 100
             },
+            // Одежда
             {
                 name: 'Футболка мужская хлопковая',
-                description: 'Хлопковая футболка, размер M, чёрная',
+                image: 'tshirt.jpg',
+                description: 'Хлопковая футболка, размер M',
                 price: 1999.00,
                 categoryId: 3,
-                userId: 3,
-                inStock: true,
-                imageUrl: null,
-                images: []
+                stockQuantity: 200
             },
             {
                 name: 'Джинсы Levi\'s 501',
-                description: 'Классические джинсы, синие, размер 32/32',
+                image: 'jeans.jpg',
+                description: 'Классические джинсы',
                 price: 5999.00,
                 categoryId: 3,
-                userId: 1,
-                inStock: true,
-                imageUrl: null,
-                images: []
+                stockQuantity: 75
             },
+            // Продукты
             {
                 name: 'Кофе в зёрнах Lavazza',
-                description: '1 кг, 100% арабика, средней обжарки',
+                image: 'coffee.jpg',
+                description: '1 кг, 100% арабика',
                 price: 1499.00,
                 categoryId: 4,
-                userId: 2,
-                inStock: true,
-                imageUrl: null,
-                images: []
+                stockQuantity: 300
             },
+            // Дом и сад
             {
-                name: 'Фитнес-браслет Xiaomi Mi Band 7',
-                description: 'Умный браслет с пульсоксиметром, 1.62" AMOLED экран',
-                price: 3999.00,
+                name: 'Горшок для цветов керамический',
+                image: 'flower_pot.jpg',
+                description: 'Керамический горшок, диаметр 20 см',
+                price: 799.00,
                 categoryId: 5,
-                userId: 3,
-                inStock: true,
-                imageUrl: null,
-                images: []
-            },
-            {
-                name: 'Йога-мат',
-                description: 'Пенополиуретановый коврик для йоги, 183x61 см, 6 мм',
-                price: 1299.00,
-                categoryId: 5,
-                userId: 1,
-                inStock: true,
-                imageUrl: null,
-                images: []
+                stockQuantity: 150
             }
         ]);
         console.log(`✅ Создано ${products.length} товаров`);
         
-        // Создаём тестовый токен для сброса пароля (для демонстрации)
-        const testToken = require('crypto').randomBytes(32).toString('hex');
-        const testExpiresAt = new Date(Date.now() + 3600000); // +1 час
+        // Создаём отзывы
+        const reviews = await Review.bulkCreate([
+            {
+                productId: 1,
+                userId: 2,
+                text: 'Отличный ноутбук! Быстрый, лёгкий, экран просто супер.',
+                rating: 5
+            },
+            {
+                productId: 1,
+                userId: 3,
+                text: 'Хороший ноутбук, но дорогой. Батареи хватает на весь день.',
+                rating: 4
+            },
+            {
+                productId: 2,
+                userId: 2,
+                text: 'Лучший смартфон на рынке! Камера просто потрясающая.',
+                rating: 5
+            },
+            {
+                productId: 4,
+                userId: 3,
+                text: 'Обязательная книга для каждого программиста.',
+                rating: 5
+            },
+            {
+                productId: 6,
+                userId: 2,
+                text: 'Удобная футболка, качественный материал.',
+                rating: 4
+            }
+        ]);
+        console.log(`✅ Создано ${reviews.length} отзывов`);
         
-        await PasswordReset.create({
-            userId: 2, // user1
-            token: testToken,
-            expiresAt: testExpiresAt,
-            used: false
-        });
-        console.log('✅ Создан тестовый токен для восстановления пароля');
+        // Создаём заказы
+        const orders = await Order.bulkCreate([
+            {
+                userId: 2,
+                date: new Date('2024-01-15'),
+                amount: 159998.99, // Ноутбук + наушники
+                status: 'delivered',
+                shippingAddress: 'ул. Ленина, д. 10, кв. 25',
+                paymentMethod: 'card',
+                paymentStatus: 'paid'
+            },
+            {
+                userId: 3,
+                date: new Date('2024-01-20'),
+                amount: 12999.00, // 2 книги + кофе
+                status: 'processing',
+                shippingAddress: 'пр. Мира, д. 45, кв. 12',
+                paymentMethod: 'card',
+                paymentStatus: 'paid'
+            }
+        ]);
+        console.log(`✅ Создано ${orders.length} заказов`);
+        
+        // Создаём элементы заказа
+        const orderItems = await OrderItem.bulkCreate([
+            // Заказ 1
+            {
+                orderId: 1,
+                productId: 1,
+                priceAtATime: 129999.99,
+                quantity: 1
+            },
+            {
+                orderId: 1,
+                productId: 3,
+                priceAtATime: 29999.00,
+                quantity: 1
+            },
+            // Заказ 2
+            {
+                orderId: 2,
+                productId: 4,
+                priceAtATime: 2499.00,
+                quantity: 2
+            },
+            {
+                orderId: 2,
+                productId: 8,
+                priceAtATime: 1499.00,
+                quantity: 3
+            }
+        ]);
+        console.log(`✅ Создано ${orderItems.length} элементов заказа`);
+        
+        // Обновляем количество товаров на складе после создания заказов
+        await Product.update({ stockQuantity: 9 }, { where: { id: 1 } }); // Ноутбук
+        await Product.update({ stockQuantity: 24 }, { where: { id: 3 } }); // Наушники
+        await Product.update({ stockQuantity: 48 }, { where: { id: 4 } }); // Книга Чистый код
+        await Product.update({ stockQuantity: 297 }, { where: { id: 8 } }); // Кофе
         
         console.log('\n' + '='.repeat(60));
         console.log('🎉 БАЗА ДАННЫХ УСПЕШНО ЗАПОЛНЕНА!');
         console.log('='.repeat(60));
         
-        console.log('\n👤 ТЕСТОВЫЕ ПОЛЬЗОВАТЕЛИ:');
-        console.log('╔══════════════════════════════════════════════════════╗');
-        console.log('║ Администратор:                                      ║');
-        console.log('║   👤 Email:    admin@example.com                    ║');
-        console.log('║   🔑 Пароль:   admin123                             ║');
-        console.log('║   🎭 Роль:     admin                                ║');
-        console.log('║   ✅ Статус:   Активен                              ║');
-        console.log('╠══════════════════════════════════════════════════════╣');
-        console.log('║ Обычный пользователь 1:                             ║');
-        console.log('║   👤 Email:    user1@example.com                    ║');
-        console.log('║   🔑 Пароль:   user123                              ║');
-        console.log('║   🎭 Роль:     user                                 ║');
-        console.log('║   👤 Имя:      Иван Петров                          ║');
-        console.log('║   ✅ Статус:   Активен                              ║');
-        console.log('╠══════════════════════════════════════════════════════╣');
-        console.log('║ Обычный пользователь 2:                             ║');
-        console.log('║   👤 Email:    user2@example.com                    ║');
-        console.log('║   🔑 Пароль:   user123                              ║');
-        console.log('║   🎭 Роль:     user                                 ║');
-        console.log('║   👤 Имя:      Мария Сидорова                       ║');
-        console.log('║   ✅ Статус:   Активен                              ║');
-        console.log('╠══════════════════════════════════════════════════════╣');
-        console.log('║ Неактивный пользователь:                            ║');
-        console.log('║   👤 Email:    inactive@example.com                 ║');
-        console.log('║   🔑 Пароль:   user123                              ║');
-        console.log('║   🎭 Роль:     user                                 ║');
-        console.log('║   👤 Имя:      Неактивный Пользователь              ║');
-        console.log('║   ❌ Статус:   Неактивен (заблокирован)             ║');
-        console.log('╚══════════════════════════════════════════════════════╝');
-        
-        console.log('\n📦 ТЕСТОВЫЕ ДАННЫЕ:');
-        console.log(`   📚 Категорий: ${categories.length}`);
-        console.log(`   🛒 Товаров:   ${products.length}`);
-        console.log(`   👥 Пользователей: ${users.length}`);
-        
-        console.log('\n🔐 АУТЕНТИФИКАЦИЯ И ВОССТАНОВЛЕНИЕ ПАРОЛЯ:');
-        console.log('╔══════════════════════════════════════════════════════╗');
-        console.log('║ 📍 Регистрация нового пользователя:                 ║');
-        console.log('║   METHOD: POST                                       ║');
-        console.log('║   URL:    /api/auth/register                         ║');
-        console.log('╠══════════════════════════════════════════════════════╣');
-        console.log('║ 📍 Вход в систему:                                  ║');
-        console.log('║   METHOD: POST                                       ║');
-        console.log('║   URL:    /api/auth/login                            ║');
-        console.log('╠══════════════════════════════════════════════════════╣');
-        console.log('║ 📍 Запрос восстановления пароля:                    ║');
-        console.log('║   METHOD: POST                                       ║');
-        console.log('║   URL:    /api/auth/forgot-password                  ║');
-        console.log('║   BODY:   {"email": "user1@example.com"}             ║');
-        console.log('╠══════════════════════════════════════════════════════╣');
-        console.log('║ 📍 Тестовый токен для восстановления:               ║');
-        console.log('║   Токен:  ${testToken}               ║');
-        console.log('║   Действителен до: ${testExpiresAt.toLocaleString()} ║');
-        console.log('╠══════════════════════════════════════════════════════╣');
-        console.log('║ 📍 Валидация токена:                                ║');
-        console.log('║   METHOD: GET                                        ║');
-        console.log('║   URL:    /api/auth/validate-reset-token/${testToken}║');
-        console.log('╠══════════════════════════════════════════════════════╣');
-        console.log('║ 📍 Сброс пароля:                                    ║');
-        console.log('║   METHOD: POST                                       ║');
-        console.log('║   URL:    /api/auth/reset-password/${testToken}      ║');
-        console.log('║   BODY:   {"newPassword": "новыйпароль123",         ║');
-        console.log('║            "confirmPassword": "новыйпароль123"}      ║');
-        console.log('╚══════════════════════════════════════════════════════╝');
-        
-        console.log('\n🌐 ВЕБ-ИНТЕРФЕЙС:');
-        console.log('   📧 Страница восстановления пароля:');
-        console.log('      http://localhost:3000/api/auth/forgot-password-page');
-        console.log('\n   🔗 Страница сброса пароля (с токеном):');
-        console.log(`      http://localhost:3000/api/auth/reset-password-page/${testToken}`);
-        
         console.log('\n📊 СТАТИСТИКА:');
-        console.log('   👥 Пользователи по ролям:');
-        const adminCount = users.filter(u => u.role === 'admin').length;
-        const userCount = users.filter(u => u.role === 'user').length;
-        console.log(`      • Администраторы: ${adminCount}`);
-        console.log(`      • Обычные пользователи: ${userCount}`);
+        console.log(`   👥 Пользователей: ${users.length}`);
+        console.log(`   📁 Категорий: ${categories.length}`);
+        console.log(`   🛒 Товаров: ${products.length}`);
+        console.log(`   ⭐ Отзывов: ${reviews.length}`);
+        console.log(`   📦 Заказов: ${orders.length}`);
+        console.log(`   🛍️ Элементов заказа: ${orderItems.length}`);
         
-        console.log('\n   🛒 Товары по категориям:');
-        for (const category of categories) {
-            const productCount = products.filter(p => p.categoryId === category.id).length;
-            console.log(`      • ${category.name}: ${productCount} товаров`);
-        }
-        
-        console.log('\n   📈 Товары по наличию:');
-        const inStockCount = products.filter(p => p.inStock).length;
-        const outOfStockCount = products.length - inStockCount;
-        console.log(`      • В наличии: ${inStockCount}`);
-        console.log(`      • Нет в наличии: ${outOfStockCount}`);
+        console.log('\n🔗 ПРИМЕРЫ ЗАПРОСОВ:');
+        console.log('   GET  /api/products?page=1&limit=10&categoryId=1');
+        console.log('   GET  /api/products?minPrice=1000&maxPrice=50000&sortBy=price&sortOrder=ASC');
+        console.log('   GET  /api/orders/my-orders (требуется авторизация)');
+        console.log('   POST /api/orders (создание заказа)');
         
         console.log('\n' + '='.repeat(60));
-        console.log('💡 СОВЕТЫ:');
-        console.log('='.repeat(60));
-        console.log('   1. Для тестирования восстановления пароля используйте:');
-        console.log('      POST /api/auth/forgot-password с email user1@example.com');
-        console.log('\n   2. Ссылка для сброса пароля появится в консоли сервера');
-        console.log('\n   3. Или используйте готовый тестовый токен выше');
-        console.log('\n   4. В продакшене настройте .env переменные для email:');
-        console.log('      SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS');
-        console.log('='.repeat(60));
         
         process.exit(0);
     } catch (error) {
-        console.error('❌ ОШИБКА ПРИ ЗАПОЛНЕНИИ БАЗЫ ДАННЫХ:');
-        console.error('   Сообщение:', error.message);
-        console.error('   Стек вызовов:', error.stack);
-        
-        if (error.name === 'SequelizeUniqueConstraintError') {
-            console.error('\n   🔍 Возможные причины:');
-            console.error('      • Дублирующиеся email или username');
-            console.error('      • Нарушение уникальных ограничений');
-        }
-        
-        if (error.name === 'SequelizeValidationError') {
-            console.error('\n   🔍 Ошибки валидации:');
-            error.errors.forEach((err, i) => {
-                console.error(`      ${i + 1}. ${err.message} (${err.path})`);
-            });
-        }
-        
-        console.error('\n   🛠️  Рекомендации:');
-        console.error('      • Проверьте настройки базы данных');
-        console.error('      • Убедитесь, что все модели корректно экспортируются');
-        console.error('      • Проверьте корректность данных в seed.js');
-        
+        console.error('❌ Ошибка при заполнении базы данных:', error);
         process.exit(1);
     }
 };
 
-// Если файл запущен напрямую, выполняем заполнение
-if (require.main === module) {
-    seedDatabase();
-} else {
-    module.exports = seedDatabase;
-}
+seedDatabase();
