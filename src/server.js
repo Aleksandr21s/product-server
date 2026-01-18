@@ -359,6 +359,12 @@ JWT: ${process.env.JWT_SECRET ? '✅ Настроен' : '❌ Не настро�
         console.error('❌ Не удалось запустить сервер:', error);
         process.exit(1);
     }
+    console.log(`
+🔐 Восстановление пароля:
+   📧 Запрос:    POST /api/auth/forgot-password
+   🌐 Страница:  http://localhost:${PORT}/api/auth/forgot-password-page
+   🔗 Сброс:     POST /api/auth/reset-password/:token
+`);
 };
 
 startServer();

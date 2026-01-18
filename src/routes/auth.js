@@ -5,23 +5,29 @@ const {
     login,
     getCurrentUser,
     updateProfile,
-    changePassword
+    changePassword,
+    requestPasswordReset,
+    validateResetToken,
+    resetPassword,
+    getResetPasswordPage,
+    getForgotPasswordPage  // <-- Убедись, что эта функция импортирована
 } = require('../controllers/authController');
 const { authenticateToken } = require('../middleware/auth');
 
-// POST /api/auth/register - регистрация
+// Страницы
+router.get('/forgot-password-page', getForgotPasswordPage);
+router.get('/reset-password-page/:token', getResetPasswordPage);
+
+// API endpoints
 router.post('/register', register);
-
-// POST /api/auth/login - вход
 router.post('/login', login);
-
-// GET /api/auth/me - получить текущего пользователя (требуется авторизация)
 router.get('/me', authenticateToken, getCurrentUser);
-
-// PUT /api/auth/profile - обновить профиль (требуется авторизация)
 router.put('/profile', authenticateToken, updateProfile);
-
-// PUT /api/auth/change-password - сменить пароль (требуется авторизация)
 router.put('/change-password', authenticateToken, changePassword);
+
+// Восстановление пароля
+router.post('/forgot-password', requestPasswordReset);
+router.get('/validate-reset-token/:token', validateResetToken);
+router.post('/reset-password/:token', resetPassword);
 
 module.exports = router;
