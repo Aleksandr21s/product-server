@@ -1,13 +1,16 @@
 const express = require('express');
-const productsRouter = require('./routes/products');
+const { testConnection } = require('./database');
+const productRoutes = require('./routes/products');
+const categoryRoutes = require('./routes/categories');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Middleware для парсинга JSON
+// Middleware
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
-// Middleware для логирования запросов
+// Логирование запросов
 app.use((req, res, next) => {
     console.log(`${new Date().toISOString()} - ${req.method} ${req.url}`);
     next();
@@ -16,23 +19,29 @@ app.use((req, res, next) => {
 // Основной маршрут
 app.get('/', (req, res) => {
     res.json({
-        message: 'Добро пожаловать в API управления товарами!',
+        message: 'Добро пожаловать в API управления товарами с базой данных!',
         endpoints: {
-            getAllProducts: 'GET /api/products',
-            getProductById: 'GET /api/products/:id',
-            addProduct: 'POST /api/products',
-            updateProduct: 'PUT /api/products/:id',
-            patchProduct: 'PATCH /api/products/:id',
-            deleteProduct: 'DELETE /api/products/:id'
+            products: {
+                getAll: 'GET /api/products',
+                getById: 'GET /api/products/:id',
+                create: 'POST /api/products',
+                update: 'PUT /api/products/:id',
+                delete: 'DELETE /api/products/:id'
+            },
+            categories: {
+                getAll: 'GET /api/categories',
+                create: 'POST /api/categories'
+            }
         },
-        documentation: 'Для использования API отправляйте JSON запросы на указанные endpoints'
+        documentation: 'Для работы с API используйте JSON формат запросов'
     });
 });
 
-// Маршруты для товаров
-app.use('/api/products', productsRouter);
+// Маршруты API
+app.use('/api/products', productRoutes);
+app.use('/api/categories', categoryRoutes);
 
-// Обработка 404 ошибок
+// Обработка 404
 app.use((req, res) => {
     res.status(404).json({
         success: false,
@@ -51,9 +60,25 @@ app.use((err, req, res, next) => {
 });
 
 // Запуск сервера
-app.listen(PORT, () => {
-    console.log(`Сервер запущен на порту ${PORT}`);
-    console.log(`Доступные endpoints:`);
-    console.log(`  http://localhost:${PORT}/`);
-    console.log(`  http://localhost:${PORT}/api/products`);
-});
+const startServer = async () => {
+    try {
+        // Проверяем подключение к базе данных
+        await testConnection();
+        
+        app.listen(PORT, () => {
+            console.log(`🚀 Сервер запущен на порту ${PORT}`);
+            console.log(`📁 База данных: database.sqlite`);
+            console.log(`🌐 Документация API: http://localhost:${PORT}/`);
+            console.log('\n📋 Доступные endpoints:');
+            console.log(`  GET  http://localhost:${PORT}/api/products`);
+            console.log(`  POST http://localhost:${PORT}/api/products`);
+            console.log(`  GET  http://localhost:${PORT}/api/categories`);
+            console.log(`\n💡 Для заполнения БД начальными данными: npm run db:init`);
+        });
+    } catch (error) {
+        console.error('❌ Не удалось запустить сервер:', error);
+        process.exit(1);
+    }
+};
+
+startServer();
