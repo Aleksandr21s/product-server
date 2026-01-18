@@ -48,9 +48,14 @@ const User = sequelize.define('User', {
         type: DataTypes.STRING,
         allowNull: true
     },
+    resetTokenExpires: {
+        type: DataTypes.DATE,
+        allowNull: true
+    },
+    // Расширяем роли
     role: {
-        type: DataTypes.ENUM('user', 'admin'),
-        defaultValue: 'user'
+        type: DataTypes.ENUM('guest', 'customer', 'seller', 'moderator', 'admin'),
+        defaultValue: 'customer'
     },
     isActive: {
         type: DataTypes.BOOLEAN,
@@ -59,6 +64,10 @@ const User = sequelize.define('User', {
     lastLogin: {
         type: DataTypes.DATE,
         allowNull: true
+    },
+    permissions: {
+        type: DataTypes.JSON,
+        defaultValue: []
     }
 }, {
     tableName: 'users',
@@ -88,8 +97,33 @@ User.prototype.toSafeObject = function() {
     const values = { ...this.toJSON() };
     delete values.password;
     delete values.resetToken;
+    delete values.resetTokenExpires;
     delete values.activationLink;
     return values;
+};
+
+// Проверка ролей
+User.prototype.isAdmin = function() {
+    return this.role === 'admin';
+};
+
+User.prototype.isModerator = function() {
+    return this.role === 'moderator' || this.role === 'admin';
+};
+
+User.prototype.isSeller = function() {
+    return this.role === 'seller' || this.role === 'moderator' || this.role === 'admin';
+};
+
+User.prototype.hasPermission = function(permission) {
+    if (this.role === 'admin') return true;
+    
+    // Проверяем разрешения в JSON поле
+    if (this.permissions && Array.isArray(this.permissions)) {
+        return this.permissions.includes(permission);
+    }
+    
+    return false;
 };
 
 module.exports = User;

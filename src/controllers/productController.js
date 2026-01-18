@@ -232,13 +232,13 @@ const updateProduct = async (req, res) => {
             });
         }
         
-        // Если меняем категорию, проверяем её существование
-        if (categoryId && categoryId !== product.categoryId) {
-            const category = await Category.findByPk(categoryId);
-            if (!category) {
-                return res.status(400).json({
+        // Проверка прав доступа
+        // Если пользователь не админ/модератор, проверяем владельца
+        if (req.user.role !== 'admin' && req.user.role !== 'moderator') {
+            if (product.userId !== req.user.id) {
+                return res.status(403).json({
                     success: false,
-                    message: 'Указанная категория не существует'
+                    message: 'Вы не можете редактировать этот товар'
                 });
             }
         }
